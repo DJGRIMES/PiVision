@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PiVision Ops Dashboard</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>PiVision Ops Dashboard</h1>
+        <p class="subtitle">Build / Troubleshoot / Deploy visibility for your Pi gateway</p>
+      </div>
+      <div class="status-pill" id="overall-status">System nominal</div>
+    </header>
+
+    <nav class="tabs" role="tablist" aria-label="Dashboard views">
+      <button class="tab active" role="tab" aria-selected="true" aria-controls="tab-system" id="btn-system" data-tab="system">System</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="tab-database" id="btn-database" data-tab="database">Database</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="tab-events" id="btn-events" data-tab="events">Events</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="tab-devices" id="btn-devices" data-tab="devices">Devices</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="tab-alerts" id="btn-alerts" data-tab="alerts">Alerts</button>
+    </nav>
+
+    <main>
+      <section class="tab-panel active" id="tab-system" role="tabpanel" aria-labelledby="btn-system">
+        <div class="grid">
+          <section class="card">
+            <h2>Pi Runtime Health</h2>
+            <div class="stats" id="system-health"></div>
+          </section>
+
+          <section class="card">
+            <h2>Ingest Throughput (last 60 min)</h2>
+            <div class="stats" id="ingest-metrics"></div>
+            <div class="mini-chart" id="ingest-chart"></div>
+          </section>
+
+          <section class="card">
+            <h2>Worker Queue</h2>
+            <div class="stats" id="queue-metrics"></div>
+            <div class="queue-bar-wrap">
+              <div class="queue-bar" id="queue-bar"></div>
+            </div>
+          </section>
+
+          <section class="card wide">
+            <h2>Deployment + Runtime Notes</h2>
+            <ul class="notes">
+              <li>Use this tab as your uptime and ingest heartbeat view.</li>
+              <li>Start with polling every 5s and alert when ingest failures increase rapidly.</li>
+              <li>Promote low disk and overheating to hard alerts before production rollout.</li>
+            </ul>
+          </section>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-database" role="tabpanel" aria-labelledby="btn-database">
+        <div class="grid">
+          <section class="card">
+            <h2>Database Health</h2>
+            <div class="stats" id="db-health"></div>
+          </section>
+
+          <section class="card">
+            <h2>Storage Footprint</h2>
+            <div class="stats" id="db-storage"></div>
+          </section>
+
+          <section class="card wide">
+            <h2>Recent Tables</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Table</th>
+                  <th>Rows</th>
+                  <th>Last Write</th>
+                  <th>Approx Size</th>
+                </tr>
+              </thead>
+              <tbody id="db-table"></tbody>
+            </table>
+          </section>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-events" role="tabpanel" aria-labelledby="btn-events">
+        <div class="grid">
+          <section class="card wide">
+            <h2>Event Timeline (with image previews)</h2>
+            <div class="event-gallery" id="event-gallery"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-devices" role="tabpanel" aria-labelledby="btn-devices">
+        <div class="grid">
+          <section class="card wide">
+            <h2>Latest Device Check-ins</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Device</th>
+                  <th>Last Seen</th>
+                  <th>RSSI</th>
+                  <th>Battery</th>
+                  <th>FW</th>
+                </tr>
+              </thead>
+              <tbody id="device-table"></tbody>
+            </table>
+          </section>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-alerts" role="tabpanel" aria-labelledby="btn-alerts">
+        <div class="grid">
+          <section class="card wide">
+            <h2>Suggested Additional View: Alerts + Incidents</h2>
+            <ul class="notes" id="alerts-list"></ul>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
