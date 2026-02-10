@@ -91,6 +91,7 @@ CREATE TABLE events (
   device_id           TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
 
   event_type          TEXT NOT NULL,                  -- interaction_detected | stock_changed | empty_confirmed | camera_issue
+  person_count        INTEGER CHECK (person_count IS NULL OR person_count >= 0), -- MVP: count of detected interactions/persons
   confidence          REAL CHECK (confidence IS NULL OR (confidence BETWEEN 0 AND 1)),
 
   started_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -98,6 +99,8 @@ CREATE TABLE events (
 
   -- A short human-readable summary for UI (optional)
   summary             TEXT,
+  -- Operator notes (e.g. "added_items", "took_items")
+  operator_note       TEXT,
 
   -- Scores/thresholds used, ROI IDs, etc.
   details             JSONB NOT NULL DEFAULT '{}'::jsonb

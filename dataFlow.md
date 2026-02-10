@@ -308,3 +308,30 @@ A scheduled job (nightly) must:
 ---
 
 If you want, I can also add a short “**API contract**” section for the ingest endpoint (headers, required meta fields, error codes) so Codex builds the ESP + Pi handshake consistently.
+
+---
+
+## 7) MVP simplifications (accepted)
+
+These choices are intentional to keep build speed high and reduce early complexity.
+
+* Event model centers on person interaction count and optional operator notes.
+* Advanced edge-case handling is deferred, but tracked as future tests.
+* Observability focuses on remaining disk space first.
+* Multi-device scheduling/fairness is deferred.
+* Keep event records long-term for historical analysis.
+
+### 7.1 Event details for MVP
+
+* Primary event remains `interaction_detected`.
+* Each event may include:
+
+  * `person_count` (integer, optional)
+  * `operator_note` (text, optional; e.g. added items, took items)
+
+### 7.2 Deferred hardening items (must test later)
+
+* DB/file partial-failure recovery behavior.
+* Retry/backoff tuning under repeated worker failures.
+* Cleanup idempotency and stale file-pointer handling.
+* Event dedupe/merge windows.
