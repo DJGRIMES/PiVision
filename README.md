@@ -594,3 +594,7 @@ DB: SQLite (MVP)
 Admin auth: none (LAN-only MVP) or simple password gate
 
 If you want, I can also produce the two “Codex seed files” that tend to w
+
+## Planning documents
+
+- `piCameraPivotPlan.md`: concrete plan to run the Pi as the camera client while preserving the same ingest/schema contract intended for ESP hardware.
