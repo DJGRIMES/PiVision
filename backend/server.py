@@ -8,6 +8,7 @@ run directly on a Raspberry Pi without extra setup during early development.
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import os
 import sqlite3
@@ -47,6 +48,13 @@ def require_fields(payload: dict, fields: list[str]) -> tuple[bool, str]:
         if field not in payload:
             return False, f"missing required field: {field}"
     return True, ""
+
+
+def parse_int_field(payload: dict, field: str) -> tuple[bool, int | None, str]:
+    try:
+        return True, int(payload[field]), ""
+    except (TypeError, ValueError):
+        return False, None, f"invalid integer field: {field}"
 
 
 class PiVisionHandler(BaseHTTPRequestHandler):
@@ -110,36 +118,59 @@ class PiVisionHandler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not found"})
 
     def _handle_ingest_frame(self, started: datetime) -> None:
+        def fail(code: HTTPStatus, error: str) -> None:
+            latency_ms = int((datetime.now(UTC) - started).total_seconds() * 1000)
+            self._record_ingest_audit("/api/v1/ingest/frame", False, latency_ms)
+            self._json(code, {"ok": False, "error": error})
+
         authed, msg = self._assert_device_key()
         if not authed:
-            self._json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": msg})
+            fail(HTTPStatus.UNAUTHORIZED, msg)
             return
 
         try:
             payload = self._read_json()
         except json.JSONDecodeError:
-            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "invalid json"})
+            fail(HTTPStatus.BAD_REQUEST, "invalid json")
             return
 
         required = ["device_id", "capture_ts", "seq", "width", "height", "jpeg_quality"]
         valid, error = require_fields(payload, required)
         if not valid:
-            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": error})
+            fail(HTTPStatus.BAD_REQUEST, error)
             return
 
         device_id = payload["device_id"]
         capture_ts = payload["capture_ts"]
-        seq = int(payload["seq"])
+        ok, seq, error = parse_int_field(payload, "seq")
+        if not ok:
+            fail(HTTPStatus.BAD_REQUEST, error)
+            return
+
+        parsed_fields: dict[str, int] = {}
+        for field in ["width", "height", "jpeg_quality"]:
+            ok, value, error = parse_int_field(payload, field)
+            if not ok:
+                fail(HTTPStatus.BAD_REQUEST, error)
+                return
+            parsed_fields[field] = value
+
         image_b64 = payload.get("image_b64")
         image_path = None
 
         if image_b64:
-            image_bytes = base64.b64decode(image_b64)
+            try:
+                image_bytes = base64.b64decode(image_b64, validate=True)
+            except (binascii.Error, ValueError):
+                fail(HTTPStatus.BAD_REQUEST, "invalid image_b64")
+                return
             image_name = f"{device_id}-{seq}.jpg"
             image_path = STAGING_DIR / image_name
             image_path.write_bytes(image_bytes)
 
         received_ts = now_iso()
+        duplicate_seq = False
+        capture_id = None
         with connect_db() as conn:
             conn.execute(
                 """
@@ -160,21 +191,25 @@ class PiVisionHandler(BaseHTTPRequestHandler):
                         capture_ts,
                         received_ts,
                         seq,
-                        int(payload["width"]),
-                        int(payload["height"]),
-                        int(payload["jpeg_quality"]),
+                        parsed_fields["width"],
+                        parsed_fields["height"],
+                        parsed_fields["jpeg_quality"],
                         str(image_path) if image_path else None,
                     ),
                 )
             except sqlite3.IntegrityError:
-                self._json(HTTPStatus.CONFLICT, {"ok": False, "error": "duplicate device seq"})
-                return
+                conn.rollback()
+                duplicate_seq = True
+            else:
+                capture_id = int(cursor.lastrowid)
+                conn.execute(
+                    "INSERT INTO jobs (capture_id, status, created_ts, updated_ts) VALUES (?, 'queued', ?, ?)",
+                    (capture_id, received_ts, received_ts),
+                )
 
-            capture_id = int(cursor.lastrowid)
-            conn.execute(
-                "INSERT INTO jobs (capture_id, status, created_ts, updated_ts) VALUES (?, 'queued', ?, ?)",
-                (capture_id, received_ts, received_ts),
-            )
+        if duplicate_seq:
+            fail(HTTPStatus.CONFLICT, "duplicate device seq")
+            return
 
         latency_ms = int((datetime.now(UTC) - started).total_seconds() * 1000)
         self._record_ingest_audit("/api/v1/ingest/frame", True, latency_ms)
@@ -243,7 +278,15 @@ class PiVisionHandler(BaseHTTPRequestHandler):
 
     def _handle_admin_events(self, parsed) -> None:
         params = parse_qs(parsed.query)
-        limit = int(params.get("limit", [20])[0])
+        try:
+            limit = int(params.get("limit", [20])[0])
+        except ValueError:
+            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "limit must be an integer"})
+            return
+
+        if limit < 1:
+            self._json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "limit must be positive"})
+            return
         with connect_db() as conn:
             rows = conn.execute(
                 """
