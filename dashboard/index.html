@@ -12,8 +12,20 @@
         <h1>PiVision Ops Dashboard</h1>
         <p class="subtitle">Build / Troubleshoot / Deploy visibility for your Pi gateway</p>
       </div>
-      <div class="status-pill" id="overall-status">System nominal</div>
+      <div class="topbar-actions">
+        <button class="secondary-btn" id="refresh-btn" type="button">Refresh now</button>
+        <div class="status-pill" id="overall-status">System nominal</div>
+      </div>
     </header>
+
+    <section class="refresh-strip" aria-live="polite">
+      <div class="refresh-meta">Source: <code>mock metrics stream</code></div>
+      <div class="refresh-meta">Last updated: <span id="last-updated">never</span></div>
+      <label class="refresh-toggle">
+        <input id="auto-refresh" type="checkbox" checked />
+        Auto-refresh every 5s
+      </label>
+    </section>
 
     <nav class="tabs" role="tablist" aria-label="Dashboard views">
       <button class="tab active" role="tab" aria-selected="true" aria-controls="tab-system" id="btn-system" data-tab="system">System</button>

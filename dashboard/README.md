@@ -9,6 +9,11 @@ This is a lightweight local dashboard prototype intended to become the operation
 - **Devices**: heartbeat/status table for all cameras.
 - **Alerts**: suggested operational alert rules (recommended additional view).
 
+## Live prototype controls
+- **Refresh now**: manually re-renders and simulates a fresh metrics pull.
+- **Auto-refresh**: runs every 5 seconds by default and can be toggled off.
+- **Overall status pill**: automatically shifts between nominal/watchlist/needs-attention based on temperature, disk, ingest failures, and dead jobs.
+
 ## Run locally
 Because this is static HTML/CSS/JS, you can open it directly:
 

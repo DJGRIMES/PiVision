@@ -1,6 +1,11 @@
 # PiVision
 
 AI Foodstand Pi Gateway Spec (MVP)
+
+## Current build status (in-repo)
+- `dashboard/`: static ops dashboard prototype.
+- `backend/`: first runnable MVP backend scaffold (SQLite + ingest/admin APIs + queue worker stub).
+
 1. Goal
 
 Build a Raspberry Pi–hosted system that:
@@ -18,6 +23,7 @@ Runs fully local (no cloud dependencies for MVP).
 Is designed so Coral inference can be added later, but not required for MVP correctness.
 
 2. Non-goals (MVP)
+
 
 No identity tracking.
 

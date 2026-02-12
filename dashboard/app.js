@@ -1,4 +1,4 @@
-const dashboardData = {
+const baseDashboardData = {
   system: {
     cpu: 22,
     memory: 58,
@@ -60,12 +60,15 @@ const dashboardData = {
     },
   ],
   alerts: [
-    "Low disk threshold: trigger warning under 20 GB remaining.",
-    "Device offline threshold: no heartbeat for > 2 minutes.",
-    "Queue risk: queued jobs > 30 for more than 5 minutes.",
-    "Error burst: ingest failures >= 10 over rolling 10 minutes.",
+    { severity: "warn", text: "Low disk threshold: trigger warning under 20 GB remaining." },
+    { severity: "warn", text: "Device offline threshold: no heartbeat for > 2 minutes." },
+    { severity: "critical", text: "Queue risk: queued jobs > 30 for more than 5 minutes." },
+    { severity: "critical", text: "Error burst: ingest failures >= 10 over rolling 10 minutes." },
   ],
 };
+
+let dashboardData = structuredClone(baseDashboardData);
+let refreshTimer = null;
 
 const el = (selector) => document.querySelector(selector);
 
@@ -156,7 +159,34 @@ function renderEventGallery(events) {
 }
 
 function renderAlerts(alerts) {
-  el("#alerts-list").innerHTML = alerts.map((item) => `<li>${item}</li>`).join("");
+  el("#alerts-list").innerHTML = alerts
+    .map(
+      (item) => `
+      <li>
+        <span class="alert-severity ${item.severity}">${item.severity}</span>
+        ${item.text}
+      </li>`
+    )
+    .join("");
+}
+
+function setOverallStatus(data) {
+  const status = el("#overall-status");
+  status.classList.remove("warn", "bad");
+
+  if (data.system.tempC >= 70 || data.system.diskRemainingGb <= 10 || data.queue.dead > 0) {
+    status.textContent = "Needs attention";
+    status.classList.add("bad");
+    return;
+  }
+
+  if (data.system.tempC >= 60 || data.system.diskRemainingGb <= 20 || data.ingest.failure60m >= 8) {
+    status.textContent = "Watchlist";
+    status.classList.add("warn");
+    return;
+  }
+
+  status.textContent = "System nominal";
 }
 
 function setupTabs() {
@@ -177,6 +207,29 @@ function setupTabs() {
       el(`#tab-${tab.dataset.tab}`).classList.add("active");
     });
   });
+}
+
+function randomDelta(value, step, min = 0) {
+  const next = value + Math.round((Math.random() * 2 - 1) * step);
+  return Math.max(min, next);
+}
+
+function simulateMetricsTick() {
+  dashboardData.system.cpu = Math.min(95, randomDelta(dashboardData.system.cpu, 6));
+  dashboardData.system.memory = Math.min(95, randomDelta(dashboardData.system.memory, 4));
+  dashboardData.system.tempC = Math.min(82, randomDelta(dashboardData.system.tempC, 2, 35));
+  dashboardData.system.diskRemainingGb = Math.max(6, dashboardData.system.diskRemainingGb - (Math.random() > 0.65 ? 1 : 0));
+
+  dashboardData.ingest.failure60m = Math.min(15, randomDelta(dashboardData.ingest.failure60m, 2));
+  dashboardData.ingest.success60m = Math.max(0, randomDelta(dashboardData.ingest.success60m, 8));
+  dashboardData.ingest.avgLatencyMs = Math.min(700, randomDelta(dashboardData.ingest.avgLatencyMs, 35, 80));
+  dashboardData.ingest.series = [...dashboardData.ingest.series.slice(1), Math.max(2, randomDelta(10, 5))];
+
+  dashboardData.queue.depth = Math.min(45, randomDelta(dashboardData.queue.depth, 4));
+  dashboardData.queue.failed = Math.min(8, randomDelta(dashboardData.queue.failed, 1));
+
+  const now = new Date();
+  el("#last-updated").textContent = now.toLocaleTimeString();
 }
 
 function render() {
@@ -207,7 +260,37 @@ function render() {
   renderDevices(dashboardData.devices);
   renderEventGallery(dashboardData.events);
   renderAlerts(dashboardData.alerts);
-  setupTabs();
+  setOverallStatus(dashboardData);
 }
 
-render();
+function tickAndRender() {
+  simulateMetricsTick();
+  render();
+}
+
+function setupRefreshControls() {
+  el("#refresh-btn").addEventListener("click", tickAndRender);
+
+  const autoRefresh = el("#auto-refresh");
+  autoRefresh.addEventListener("change", () => {
+    if (refreshTimer) {
+      clearInterval(refreshTimer);
+      refreshTimer = null;
+    }
+
+    if (autoRefresh.checked) {
+      refreshTimer = setInterval(tickAndRender, 5000);
+    }
+  });
+
+  refreshTimer = setInterval(tickAndRender, 5000);
+}
+
+function init() {
+  setupTabs();
+  setupRefreshControls();
+  render();
+  el("#last-updated").textContent = new Date().toLocaleTimeString();
+}
+
+init();
