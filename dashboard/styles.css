@@ -201,6 +201,13 @@ td {
   margin-bottom: 0.4rem;
 }
 
+.empty-state {
+  color: var(--muted);
+  text-align: center;
+  padding: 0.75rem 0;
+  font-size: 0.9rem;
+}
+
 .alert-severity {
   margin-right: 0.5rem;
   border: 1px solid var(--border);
@@ -263,6 +270,17 @@ td {
   border-radius: 10px;
   overflow: hidden;
   background: #111822;
+}
+
+.event-preview {
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  font-size: 0.85rem;
+  color: var(--muted);
 }
 
 .event-card img {

@@ -36,22 +36,6 @@ def process_capture(conn: sqlite3.Connection, capture_id: int) -> None:
     if not capture:
         raise RuntimeError(f"missing capture: {capture_id}")
 
-    # MVP placeholder heuristic: emit an interaction event every 3rd frame.
-    if capture["seq"] % 3 == 0:
-        conn.execute(
-            """
-            INSERT INTO events (capture_id, device_id, event_type, event_ts, confidence, note)
-            VALUES (?, ?, 'interaction_detected', ?, ?, ?)
-            """,
-            (
-                capture["id"],
-                capture["device_id"],
-                now_iso(),
-                0.55,
-                "MVP placeholder event emitted by worker stub.",
-            ),
-        )
-
     conn.execute("UPDATE captures SET processing_status = 'processed' WHERE id = ?", (capture_id,))
 
 

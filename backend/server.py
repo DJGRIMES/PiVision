@@ -11,8 +11,9 @@ import base64
 import binascii
 import json
 import os
+import shutil
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -25,6 +26,211 @@ DB_PATH = DATA_DIR / "pivision.db"
 SCHEMA_PATH = ROOT / "schema.sql"
 DEFAULT_DEVICE_KEY = os.getenv("PIVISION_DEVICE_KEY", "dev-key")
 
+_INGEST_WINDOW_MINUTES = 60
+_INGEST_BUCKET_COUNT = 12
+_INGEST_BUCKET_MINUTES = 5
+
+
+
+def _parse_iso_ts(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _format_uptime(seconds: float | None) -> str:
+    if seconds is None:
+        return "unknown"
+    total = int(seconds)
+    days, remainder = divmod(total, 86_400)
+    hours, remainder = divmod(remainder, 3_600)
+    minutes = remainder // 60
+    if days:
+        return f"{days}d {hours}h"
+    if hours:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
+def _read_uptime_seconds() -> float | None:
+    uptime_path = Path("/proc/uptime")
+    if not uptime_path.exists():
+        return None
+    try:
+        with uptime_path.open() as fh:
+            parts = fh.readline().split()
+        return float(parts[0]) if parts else None
+    except (ValueError, OSError):
+        return None
+
+
+def _read_memory_percent() -> float | None:
+    meminfo_path = Path("/proc/meminfo")
+    if not meminfo_path.exists():
+        return None
+    info: dict[str, int] = {}
+    try:
+        for line in meminfo_path.read_text().splitlines():
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            info[key.strip()] = int(value.strip().split()[0])
+    except ValueError:
+        return None
+
+    total = info.get("MemTotal")
+    available = info.get("MemAvailable")
+    if not total or not available:
+        return None
+    used = total - available
+    return round((used / total) * 100, 1)
+
+
+def _read_cpu_percent() -> float | None:
+    if not hasattr(os, "getloadavg"):
+        return None
+    try:
+        load = os.getloadavg()[0]
+    except OSError:
+        return None
+    cpus = os.cpu_count() or 1
+    return round(min(100.0, (load / cpus) * 100.0), 1)
+
+
+def _read_temp_c() -> float | None:
+    for zone in ("thermal_zone0", "thermal_zone1"):
+        path = Path(f"/sys/class/thermal/{zone}/temp")
+        if not path.exists():
+            continue
+        try:
+            raw = int(path.read_text().strip())
+        except ValueError:
+            continue
+        if raw > 1_000:
+            return round(raw / 1_000, 1)
+        return float(raw)
+    return None
+
+
+def _system_metrics() -> dict:
+    disk_target = DATA_DIR if DATA_DIR.exists() else Path("/")
+    try:
+        disk_usage = shutil.disk_usage(disk_target)
+        disk_remaining_gb = round(disk_usage.free / 1_073_741_824, 1)
+    except OSError:
+        disk_remaining_gb = 0.0
+
+    return {
+        "cpu": _read_cpu_percent(),
+        "memory": _read_memory_percent(),
+        "diskRemainingGb": disk_remaining_gb,
+        "tempC": _read_temp_c(),
+        "uptime": _format_uptime(_read_uptime_seconds()),
+    }
+
+
+def _collect_ingest_metrics(conn: sqlite3.Connection) -> dict:
+    rows = conn.execute("SELECT ok, latency_ms, request_ts FROM ingest_audit").fetchall()
+    now = datetime.now(UTC)
+    window_start = now - timedelta(minutes=_INGEST_WINDOW_MINUTES)
+    bucket_start = now - timedelta(minutes=_INGEST_BUCKET_MINUTES * _INGEST_BUCKET_COUNT)
+    series = [0] * _INGEST_BUCKET_COUNT
+
+    success_total = failure_total = 0
+    success_60m = failure_60m = 0
+    latency_samples: list[int] = []
+    for row in rows:
+        ts = _parse_iso_ts(row["request_ts"])
+        if not ts:
+            continue
+
+        if row["ok"]:
+            success_total += 1
+        else:
+            failure_total += 1
+
+        if ts >= window_start:
+            if row["ok"]:
+                success_60m += 1
+            else:
+                failure_60m += 1
+            latency_samples.append(row["latency_ms"])
+
+        if ts >= bucket_start:
+            bucket_index = int((ts - bucket_start).total_seconds() // (_INGEST_BUCKET_MINUTES * 60))
+            if 0 <= bucket_index < len(series):
+                series[bucket_index] += 1
+
+    avg_latency = round(sum(latency_samples) / len(latency_samples), 1) if latency_samples else 0
+    return {
+        "success_total": success_total,
+        "failure_total": failure_total,
+        "success_60m": success_60m,
+        "failure_60m": failure_60m,
+        "avg_latency_ms": avg_latency,
+        "series": series,
+    }
+
+
+_TABLE_LAST_ACTIVITY_COLUMNS: dict[str, str] = {
+    "captures": "MAX(received_ts)",
+    "events": "MAX(event_ts)",
+    "jobs": "MAX(updated_ts)",
+    "devices": "MAX(last_seen)",
+    "ingest_audit": "MAX(request_ts)",
+}
+
+
+def _table_last_activity(conn: sqlite3.Connection, table: str) -> str | None:
+    column = _TABLE_LAST_ACTIVITY_COLUMNS.get(table)
+    if not column:
+        return None
+    query = f"SELECT {column} as ts FROM {table}"
+    row = conn.execute(query).fetchone()
+    return row["ts"] if row and row["ts"] else None
+
+
+def _collect_database_metrics(conn: sqlite3.Connection) -> dict:
+    tables = ["captures", "events", "jobs", "devices", "ingest_audit"]
+    counts: dict[str, int] = {}
+    for table in tables:
+        counts[table] = conn.execute(f"SELECT COUNT(*) as cnt FROM {table}").fetchone()["cnt"]
+
+    total_rows = sum(counts.values())
+    db_size = DB_PATH.stat().st_size if DB_PATH.exists() else 0
+    approx_per_row = (db_size / max(total_rows, 1)) if total_rows else 0
+
+    table_details: list[dict[str, str | int]] = []
+    for table in tables:
+        last_write = _table_last_activity(conn, table)
+        size_mb = round((approx_per_row * counts[table]) / 1_048_576, 2) if approx_per_row else 0
+        table_details.append(
+            {
+                "name": table,
+                "rows": counts[table],
+                "lastWrite": last_write or "N/A",
+                "size": f"{size_mb:.2f} MB",
+            }
+        )
+
+    version = conn.execute("SELECT sqlite_version() as version").fetchone()["version"]
+    return {
+        "connected": True,
+        "version": version,
+        "dbSizeMb": round(db_size / 1_048_576, 2),
+        "captures": counts["captures"],
+        "events": counts["events"],
+        "jobs": counts["jobs"],
+        "devices": counts["devices"],
+        "ingestAudit": counts["ingest_audit"],
+        "tables": table_details,
+    }
 
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -90,19 +296,12 @@ class PiVisionHandler(BaseHTTPRequestHandler):
             return False, "invalid device key"
         return True, ""
 
-    def do_POST(self) -> None:  # noqa: N802
-        started = datetime.now(UTC)
-        parsed = urlparse(self.path)
-        if parsed.path == "/api/v1/ingest/frame":
-            self._handle_ingest_frame(started)
-            return
-        if parsed.path == "/api/v1/ingest/heartbeat":
-            self._handle_heartbeat()
-            return
-        self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not found"})
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
+        if parsed.path == "/health":
+            self._json(HTTPStatus.OK, {"ok": True})
+            return
         if parsed.path == "/api/v1/device/config":
             self._handle_device_config(parsed)
             return
@@ -313,44 +512,24 @@ class PiVisionHandler(BaseHTTPRequestHandler):
         metric_type = path.split("/")[-1]
         with connect_db() as conn:
             if metric_type == "ingest":
-                success = conn.execute("SELECT COUNT(*) FROM ingest_audit WHERE ok = 1").fetchone()[0]
-                fail = conn.execute("SELECT COUNT(*) FROM ingest_audit WHERE ok = 0").fetchone()[0]
-                avg_latency = conn.execute("SELECT COALESCE(AVG(latency_ms), 0) FROM ingest_audit").fetchone()[0]
-                self._json(
-                    HTTPStatus.OK,
-                    {
-                        "ok": True,
-                        "success_total": success,
-                        "failure_total": fail,
-                        "avg_latency_ms": round(avg_latency, 1),
-                    },
-                )
+                ingest_data = _collect_ingest_metrics(conn)
+                self._json(HTTPStatus.OK, {"ok": True, **ingest_data})
                 return
 
             if metric_type == "queue":
                 status_rows = conn.execute("SELECT status, COUNT(*) count FROM jobs GROUP BY status").fetchall()
                 metrics = {row["status"]: row["count"] for row in status_rows}
-                self._json(HTTPStatus.OK, {"ok": True, "queue": metrics})
+                depth = sum(metrics.get(status, 0) for status in ("queued", "running", "failed", "dead"))
+                self._json(HTTPStatus.OK, {"ok": True, "queue": metrics, "depth": depth})
                 return
 
             if metric_type == "database":
-                captures = conn.execute("SELECT COUNT(*) FROM captures").fetchone()[0]
-                events = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-                jobs = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
-                self._json(HTTPStatus.OK, {"ok": True, "captures": captures, "events": events, "jobs": jobs})
+                db_metrics = _collect_database_metrics(conn)
+                self._json(HTTPStatus.OK, {"ok": True, **db_metrics})
                 return
 
             if metric_type == "system":
-                # Placeholder until we wire actual Pi host metrics.
-                self._json(
-                    HTTPStatus.OK,
-                    {
-                        "ok": True,
-                        "status": "placeholder",
-                        "disk_remaining_gb": None,
-                        "temp_c": None,
-                    },
-                )
+                self._json(HTTPStatus.OK, {"ok": True, **_system_metrics()})
                 return
 
         self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "unknown metrics group"})
