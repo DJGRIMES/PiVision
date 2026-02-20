@@ -1,0 +1,37 @@
+version: "3.9"
+
+services:
+  backend:
+    volumes:
+      - /mnt/pivision/data:/app/backend/data
+    environment:
+      PIVISION_DEVICE_KEY: pi-device-key
+
+  worker:
+    volumes:
+      - /mnt/pivision/data:/app/backend/data
+
+  retention:
+    volumes:
+      - /mnt/pivision/data:/app/backend/data
+    restart: "no"
+
+  camera:
+    build: .
+    depends_on:
+      - backend
+    devices:
+      - "/dev/video0:/dev/video0"
+    volumes:
+      - /mnt/pivision/data:/app/backend/data
+    restart: unless-stopped
+    command: >
+      python3 scripts/webcam_ingest.py
+        --device-id ${CAMERA_DEVICE_ID:-pi-camera}
+        --api-base http://backend:8080/api/v1
+        --device-key ${PIVISION_DEVICE_KEY:-pi-device-key}
+        --seq-file backend/data/${CAMERA_DEVICE_ID:-pi-camera}.seq
+
+  dashboard:
+    volumes:
+      - /mnt/pivision/dashboard:/workspace

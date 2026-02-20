@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  backend:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - data:/app/backend/data
+    environment:
+      PORT: 8080
+
+  worker:
+    build: .
+    depends_on:
+      - backend
+    volumes:
+      - data:/app/backend/data
+    command: python3 backend/worker.py
+
+  retention:
+    build: .
+    depends_on:
+      - backend
+    volumes:
+      - data:/app/backend/data
+    command: python3 scripts/retention.py
+    restart: "no"
+
+  dashboard:
+    image: python:3.12-slim
+    ports:
+      - "4173:4173"
+    working_dir: /workspace/dashboard
+    volumes:
+      - .:/workspace
+    environment:
+      PIVISION_API_BASE: http://backend:8080/api/v1
+    command: python3 -m http.server 4173
+
+volumes:
+  data:
