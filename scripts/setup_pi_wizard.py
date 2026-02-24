@@ -99,9 +99,14 @@ def write_env(path: Path, values: Dict[str, str], keys: Sequence[str]) -> None:
     print(f"Wrote {path}")
 
 
-def run_subprocess(cmd: Sequence[str], **kwargs) -> None:
-    print(f"Running: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, **kwargs)
+def run_subprocess(
+    cmd: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    **kwargs,
+) -> None:
+    print(f"Running: {' '.join(cmd)} (cwd={cwd or Path.cwd()})")
+    subprocess.run(cmd, check=True, cwd=cwd, **kwargs)
 
 
 def try_docker_compose() -> bool:
@@ -126,7 +131,7 @@ def run_deploy(skip: bool) -> None:
         print("Warning: 'docker compose' command not available; install Docker Compose before continuing.")
     env = os.environ.copy()
     env["ENV_FILE"] = str(ENV_FILE)
-    run_subprocess([str(DEPLOY_SCRIPT)], env=env)
+    run_subprocess([str(DEPLOY_SCRIPT)], env=env, cwd=REPO_ROOT)
 
 
 def run_health_check(skip: bool) -> None:
@@ -135,7 +140,7 @@ def run_health_check(skip: bool) -> None:
         return
     if not CHECK_SCRIPT.exists():
         raise SystemExit("check_backend.sh missing; cannot run health check")
-    run_subprocess([str(CHECK_SCRIPT)])
+    run_subprocess([str(CHECK_SCRIPT)], cwd=REPO_ROOT)
 
 
 def systemctl_active(service: str) -> bool:
