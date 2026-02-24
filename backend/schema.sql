@@ -62,3 +62,10 @@ CREATE TABLE IF NOT EXISTS ingest_audit (
   ok INTEGER NOT NULL,
   latency_ms INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS system_health (
+  name TEXT PRIMARY KEY,
+  last_success TEXT,
+  last_error TEXT,
+  details TEXT
+);

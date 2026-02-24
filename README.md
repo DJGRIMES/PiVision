@@ -540,6 +540,57 @@ foodstand-worker.service
 
 foodstand-retention.timer (nightly cleanup)
 
+## Containerized deployment workflow
+
+The preferred path for deployment is to publish the backend/worker/retention image once per release and have each Pi (or dev laptop) simply pull the tested images and start the Compose stack.
+
+### 1. Build & publish release images
+
+Use `scripts/build_release_images.sh` to build multi-architecture images:
+
+```bash
+REGISTRY=docker.io/myorg TAG=2026-02-21 scripts/build_release_images.sh
+```
+
+The script defaults to `docker.io/pivision` and `latest`, but you can override `REGISTRY`, `TAG`, `PLATFORMS` (comma-separated list), and `PUSH` (`true`/`false`). It builds the `backend` image (used by ingest, worker, retention, and camera) with `docker buildx` and either pushes it or loads it locally.
+
+### 2. Pull & run on each Pi
+
+We ship `docker-compose.deploy.yml` as the production compose file: it references image tags via these env vars:
+
+```
+PIVISION_DATA_DIR=/mnt/pivision/data
+PIVISION_BACKEND_IMAGE=docker.io/pivision/backend:latest
+PIVISION_WORKER_IMAGE=…
+PIVISION_RETENTION_IMAGE=…
+PIVISION_CAMERA_IMAGE=…
+PIVISION_DASHBOARD_IMAGE=…
+PIVISION_DASHBOARD_DIR=/mnt/pivision/dashboard
+PIVISION_DEVICE_KEY=pi-device-key
+```
+
+Copy `env.deploy.example` to `.env.deploy` and edit the registry/tag or paths, or let `scripts/deploy_pi.sh` generate it for you.
+
+Run `scripts/deploy_pi.sh` on the Pi; it ensures the data/dashboard directories exist, writes `.env.deploy`, pulls the images, and brings up the Compose stack using `docker-compose.deploy.yml` + `docker-compose.pi.yml`. After the script runs, `backend` exposes `/health` and `dashboard` listens on port 4173.
+
+### 3. Verify health & automation
+
+- `TAIL=docker compose -f docker-compose.deploy.yml -f docker-compose.pi.yml --env-file .env.deploy logs --tail 20` shows startup logs.
+- `curl http://localhost:8080/health` should return `{"ok": true, …}`; `scripts/check_backend.sh` folds metrics + ingest into a single gravity check.
+- To upgrade, set `TAG` to the new release, re-run the deploy script (it pulls the new image and recreates the services). Roll back by pointing `.env.deploy` to an older tag and repeating `docker compose ... pull` + `up -d`.
+
+Automate this entire process via systemd timers or a CI/CD pipeline that invokes `scripts/build_release_images.sh` and updates the `.env.deploy` on the target Pi.
+
+### 3. Guided Pi setup wizard
+
+`scripts/setup_pi_wizard.py` walks operators through the one-time Pi configuration so deployments stay consistent. Run the wizard from the repo root on the target Pi (e.g., `python3 scripts/setup_pi_wizard.py`), and it will:
+
+- prompt for `.env.deploy` values (data/dashboard dirs, image tags, device key, camera ID) using the defaults in `env.deploy.example` and back up any existing file before writing the new version,
+- create the configured directories, optionally invoke `scripts/deploy_pi.sh` to pull/push Docker Compose services, and execute `scripts/check_backend.sh` to verify `/health`,
+- optionally install the new systemd unit templates from `deployment/systemd/` when run with `--install-services` (or print the necessary `sudo install ...` + `systemctl` commands if run without root).
+
+Follow any printed instructions for enabling services, checking for legacy conflicts, and inspecting `journalctl -u pivision-server` / `journalctl -u pivision-worker` after the wizard finishes.
+
 15. Acceptance criteria (definition of done)
 Ingest
 

@@ -3,27 +3,33 @@ version: "3.9"
 services:
   backend:
     volumes:
-      - /mnt/pivision/data:/app/backend/data
+      - ${PIVISION_DATA_DIR:-/mnt/pivision/data}:/app/backend/data
     environment:
-      PIVISION_DEVICE_KEY: pi-device-key
+      PIVISION_DEVICE_KEY: ${PIVISION_DEVICE_KEY:-pi-device-key}
 
   worker:
+    depends_on:
+      - backend
+    command: python3 backend/worker.py
     volumes:
-      - /mnt/pivision/data:/app/backend/data
+      - ${PIVISION_DATA_DIR:-/mnt/pivision/data}:/app/backend/data
 
   retention:
-    volumes:
-      - /mnt/pivision/data:/app/backend/data
+    depends_on:
+      - backend
+    command: python3 scripts/retention.py
     restart: "no"
+    volumes:
+      - ${PIVISION_DATA_DIR:-/mnt/pivision/data}:/app/backend/data
 
   camera:
-    build: .
+    image: ${PIVISION_CAMERA_IMAGE:-docker.io/pivision/backend:latest}
     depends_on:
       - backend
     devices:
       - "/dev/video0:/dev/video0"
     volumes:
-      - /mnt/pivision/data:/app/backend/data
+      - ${PIVISION_DATA_DIR:-/mnt/pivision/data}:/app/backend/data
     restart: unless-stopped
     command: >
       python3 scripts/webcam_ingest.py

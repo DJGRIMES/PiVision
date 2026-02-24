@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, urlparse
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 STAGING_DIR = DATA_DIR / "staging"
+EVENTS_DIR = DATA_DIR / "events"
 DB_PATH = DATA_DIR / "pivision.db"
 SCHEMA_PATH = ROOT / "schema.sql"
 DEFAULT_DEVICE_KEY = os.getenv("PIVISION_DEVICE_KEY", "dev-key")
@@ -232,6 +233,58 @@ def _collect_database_metrics(conn: sqlite3.Connection) -> dict:
         "tables": table_details,
     }
 
+
+def _directory_status(name: str, path: Path) -> dict[str, str | bool]:
+    exists = path.exists()
+    writable = exists and os.access(path, os.W_OK)
+    return {"name": name, "path": str(path), "exists": exists, "writable": writable}
+
+
+def _collect_system_health_records(conn: sqlite3.Connection) -> list[dict[str, str | dict | None]]:
+    rows = conn.execute("SELECT name, last_success, last_error, details FROM system_health").fetchall()
+    records: list[dict[str, str | dict | None]] = []
+    for row in rows:
+        details_value = row["details"]
+        parsed_details = None
+        if details_value:
+            try:
+                parsed_details = json.loads(details_value)
+            except json.JSONDecodeError:
+                parsed_details = details_value
+        records.append(
+            {
+                "name": row["name"],
+                "lastSuccess": row["last_success"],
+                "lastError": row["last_error"],
+                "details": parsed_details,
+            }
+        )
+    return records
+
+
+def record_system_health(
+    name: str, success: bool, details: dict | None = None, error: str | None = None
+) -> None:
+    timestamp = now_iso()
+    detail_payload = json.dumps(details) if details is not None else None
+    success_ts = timestamp if success else None
+    error_text = f"{timestamp} {error}" if error else None
+    with connect_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO system_health (name, last_success, last_error, details)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET
+              last_success = COALESCE(excluded.last_success, system_health.last_success),
+              last_error = CASE
+                WHEN excluded.last_error IS NOT NULL THEN excluded.last_error
+                ELSE system_health.last_error
+              END,
+              details = COALESCE(excluded.details, system_health.details)
+            """,
+            (name, success_ts, error_text, detail_payload),
+        )
+
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -245,6 +298,7 @@ def connect_db() -> sqlite3.Connection:
 def init_db() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     STAGING_DIR.mkdir(parents=True, exist_ok=True)
+    EVENTS_DIR.mkdir(parents=True, exist_ok=True)
     with connect_db() as conn:
         conn.executescript(SCHEMA_PATH.read_text())
 
@@ -300,7 +354,7 @@ class PiVisionHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         if parsed.path == "/health":
-            self._json(HTTPStatus.OK, {"ok": True})
+            self._handle_health()
             return
         if parsed.path == "/api/v1/device/config":
             self._handle_device_config(parsed)
@@ -533,6 +587,37 @@ class PiVisionHandler(BaseHTTPRequestHandler):
                 return
 
         self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "unknown metrics group"})
+
+    def _handle_health(self) -> None:
+        directories = [
+            _directory_status("data", DATA_DIR),
+            _directory_status("staging", STAGING_DIR),
+            _directory_status("events", EVENTS_DIR),
+            _directory_status("db", DB_PATH),
+        ]
+        db_ok = True
+        db_error = None
+        records: list[dict[str, str | dict | None]] = []
+        try:
+            with connect_db() as conn:
+                conn.execute("SELECT 1")
+                records = _collect_system_health_records(conn)
+        except sqlite3.Error as exc:
+            db_ok = False
+            db_error = str(exc)
+
+        system_metrics = _system_metrics()
+        ok = db_ok and all(directory["exists"] and directory["writable"] for directory in directories)
+        response = {
+            "ok": ok,
+            "timestamp": now_iso(),
+            "db": {"connected": db_ok, "path": str(DB_PATH), "error": db_error},
+            "directories": directories,
+            "system": system_metrics,
+            "background": records,
+        }
+        status = HTTPStatus.OK if ok else HTTPStatus.SERVICE_UNAVAILABLE
+        self._json(status, response)
 
 
 def serve(port: int = 8080) -> None:

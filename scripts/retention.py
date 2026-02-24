@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from backend.server import DATA_DIR, STAGING_DIR
+from backend.server import DATA_DIR, STAGING_DIR, init_db, record_system_health
 
 
 EVENTS_DIR = DATA_DIR / "events"
@@ -85,11 +85,25 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    EVENTS_DIR.mkdir(parents=True, exist_ok=True)
+    init_db()
     args = parse_args()
-
-    staging_removed = prune_staging(args.staging_hours)
-    event_removed = prune_events(args.retention_days)
+    try:
+        EVENTS_DIR.mkdir(parents=True, exist_ok=True)
+        staging_removed = prune_staging(args.staging_hours)
+        event_removed = prune_events(args.retention_days)
+        record_system_health(
+            "retention",
+            True,
+            details={
+                "staging_removed": staging_removed,
+                "event_removed": event_removed,
+                "staging_hours": args.staging_hours,
+                "retention_days": args.retention_days,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        record_system_health("retention", False, error=str(exc))
+        raise
 
     print(
         f"[retention] removed {staging_removed} staging files older than {args.staging_hours}h "

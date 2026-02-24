@@ -23,6 +23,24 @@ if not data.get("ok"):
 print("[check] ingest metrics ok")
 PY
 
+echo "[check] hitting /health"
+curl -sSf "${API_BASE}/health" | python3 - <<'PY'
+import json, sys
+data = json.load(sys.stdin)
+health_ok = data.get("ok") is True
+if not health_ok:
+    raise SystemExit("health endpoint reported !ok")
+db_info = data.get("db", {})
+if not db_info.get("connected"):
+    raise SystemExit("health endpoint cannot reach database")
+for entry in data.get("directories", []):
+    if not entry.get("exists"):
+        raise SystemExit(f"missing directory: {entry.get('path')}")
+    if not entry.get("writable"):
+        raise SystemExit(f"directory not writable: {entry.get('path')}")
+print("[check] health ok")
+PY
+
 echo "[check] ingesting a tiny frame to /ingest/frame"
 IMAGE_B64=$(python3 - <<'PY'
 import base64
