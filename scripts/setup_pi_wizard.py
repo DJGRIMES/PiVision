@@ -121,7 +121,7 @@ def try_docker_compose() -> bool:
         return False
 
 
-def run_deploy(skip: bool, values: Dict[str, str]) -> None:
+def run_deploy(skip: bool, values: Dict[str, str], *, skip_pull: bool = False) -> None:
     if skip:
         print("Skipping deployment phase per request.")
         return
@@ -139,6 +139,8 @@ def run_deploy(skip: bool, values: Dict[str, str]) -> None:
     env["CAMERA_IMAGE"] = values["PIVISION_CAMERA_IMAGE"]
     env["DASHBOARD_IMAGE"] = values["PIVISION_DASHBOARD_IMAGE"]
     env["DEVICE_KEY"] = values["PIVISION_DEVICE_KEY"]
+    if skip_pull:
+        env["SKIP_PULL"] = "true"
     run_subprocess([str(DEPLOY_SCRIPT)], env=env, cwd=REPO_ROOT)
 
 
@@ -208,6 +210,7 @@ def main() -> None:
     parser.add_argument("--skip-deploy", action="store_true", help="Do not invoke scripts/deploy_pi.sh")
     parser.add_argument("--skip-health", action="store_true", help="Skip running the health check script")
     parser.add_argument("--install-services", action="store_true", help="Install systemd services after deploy")
+    parser.add_argument("--skip-pull", action="store_true", help="Skip docker compose pull and rely on local images")
     parser.add_argument("--yes", action="store_true", help="Skip confirmations")
     args = parser.parse_args()
 
@@ -234,7 +237,7 @@ def main() -> None:
     write_env(ENV_FILE, merged, [key for key, _ in ENV_ITEMS])
     ensure_directories([merged["PIVISION_DATA_DIR"], merged["PIVISION_DASHBOARD_DIR"]])
 
-    run_deploy(args.skip_deploy, merged)
+    run_deploy(args.skip_deploy, merged, skip_pull=args.skip_pull)
     run_health_check(args.skip_health)
 
     if args.install_services:

@@ -31,8 +31,12 @@ PIVISION_DASHBOARD_DIR=${DASHBOARD_DIR}
 PIVISION_DEVICE_KEY=${DEVICE_KEY}
 ENV
 
-echo "[deploy] pulling images"
-docker compose -f "${COMPOSE_FILE}" -f "${PI_COMPOSE_FILE}" --env-file "${ENV_FILE}" pull
+if [ "${SKIP_PULL:-}" = "true" ]; then
+  echo "[deploy] skipping 'docker compose pull' (SKIP_PULL=true)"
+else
+  echo "[deploy] pulling images"
+  docker compose -f "${COMPOSE_FILE}" -f "${PI_COMPOSE_FILE}" --env-file "${ENV_FILE}" pull
+fi
 
 echo "[deploy] bringing services up"
 docker compose -f "${COMPOSE_FILE}" -f "${PI_COMPOSE_FILE}" --env-file "${ENV_FILE}" up -d
