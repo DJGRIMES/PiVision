@@ -121,7 +121,7 @@ def try_docker_compose() -> bool:
         return False
 
 
-def run_deploy(skip: bool) -> None:
+def run_deploy(skip: bool, values: Dict[str, str]) -> None:
     if skip:
         print("Skipping deployment phase per request.")
         return
@@ -131,6 +131,14 @@ def run_deploy(skip: bool) -> None:
         print("Warning: 'docker compose' command not available; install Docker Compose before continuing.")
     env = os.environ.copy()
     env["ENV_FILE"] = str(ENV_FILE)
+    env["DATA_DIR"] = values["PIVISION_DATA_DIR"]
+    env["DASHBOARD_DIR"] = values["PIVISION_DASHBOARD_DIR"]
+    env["BACKEND_IMAGE"] = values["PIVISION_BACKEND_IMAGE"]
+    env["WORKER_IMAGE"] = values["PIVISION_WORKER_IMAGE"]
+    env["RETENTION_IMAGE"] = values["PIVISION_RETENTION_IMAGE"]
+    env["CAMERA_IMAGE"] = values["PIVISION_CAMERA_IMAGE"]
+    env["DASHBOARD_IMAGE"] = values["PIVISION_DASHBOARD_IMAGE"]
+    env["DEVICE_KEY"] = values["PIVISION_DEVICE_KEY"]
     run_subprocess([str(DEPLOY_SCRIPT)], env=env, cwd=REPO_ROOT)
 
 
@@ -226,7 +234,7 @@ def main() -> None:
     write_env(ENV_FILE, merged, [key for key, _ in ENV_ITEMS])
     ensure_directories([merged["PIVISION_DATA_DIR"], merged["PIVISION_DASHBOARD_DIR"]])
 
-    run_deploy(args.skip_deploy)
+    run_deploy(args.skip_deploy, merged)
     run_health_check(args.skip_health)
 
     if args.install_services:
