@@ -7,17 +7,22 @@ import argparse
 import base64
 import json
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
 
+LIBCAM_STILL = shutil.which("libcamera-still")
+
 try:
     from picamera2 import Picamera2
 except ImportError:
-    raise SystemExit("Picamera2 is required. Install it via 'sudo apt install python3-picamera2'.")
+    Picamera2 = None  # type: ignore[assignment]
 
 try:
     import cv2
@@ -49,6 +54,33 @@ def encode_frame(frame, quality: int) -> str:
     return base64.b64encode(buffer).decode("ascii")
 
 
+def capture_frame(picam2: Picamera2 | None, width: int, height: int):
+    if picam2 is not None:
+        return picam2.capture_array()
+    if not LIBCAM_STILL:
+        raise SystemExit(
+            "Picamera2 is missing and libcamera-still is not available; install one of them."
+        )
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp:
+        temp_path = Path(temp.name)
+    cmd = [
+        LIBCAM_STILL,
+        "--nopreview",
+        "-o",
+        str(temp_path),
+        "--width",
+        str(width),
+        "--height",
+        str(height),
+    ]
+    subprocess.run(cmd, check=True)
+    frame = cv2.imread(str(temp_path))
+    temp_path.unlink(missing_ok=True)
+    if frame is None:
+        raise RuntimeError("libcamera-still produced no image")
+    return frame
+
+
 def build_payload(device_id: str, seq: int, width: int, height: int, quality: int, image_b64: str) -> dict:
     return {
         "device_id": device_id,
@@ -68,7 +100,9 @@ def send_frame(session: requests.Session, base_url: str, device_key: str, payloa
     return resp.json()
 
 
-def configure_camera(width: int, height: int) -> Picamera2:
+def configure_camera(width: int, height: int) -> Picamera2 | None:
+    if Picamera2 is None:
+        return None
     picam2 = Picamera2()
     config = picam2.create_preview_configuration(main={"format": "RGB888", "size": (width, height)})
     picam2.configure(config)
@@ -96,11 +130,15 @@ def main() -> None:
     picam2 = configure_camera(width, height)
     session = requests.Session()
 
-    print(f"Starting PiVision camera client device={args.device_id} interval={args.capture_interval}s")
+    print(
+        f"Starting PiVision camera client device={args.device_id} "
+        f"interval={args.capture_interval}s using "
+        f"{'Picamera2' if picam2 else 'libcamera-still'}"
+    )
     try:
         frame_count = 0
         while True:
-            array = picam2.capture_array()
+            array = capture_frame(picam2, width, height)
             image_b64 = encode_frame(array, max(10, min(100, args.jpeg_quality)))
             payload = build_payload(args.device_id, seq, width, height, args.jpeg_quality, image_b64)
             try:
@@ -115,7 +153,8 @@ def main() -> None:
                 break
             time.sleep(args.capture_interval)
     finally:
-        picam2.stop()
+        if picam2 is not None:
+            picam2.stop()
 
 
 if __name__ == "__main__":

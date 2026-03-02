@@ -579,11 +579,11 @@ This repo now describes the minimal MVP runtime: you run the Python services dir
 
 ### Using the Pi camera for ingest
 
-If you want to capture frames directly from the Raspberry Pi camera, install the Picamera2 stack:
+If you want to capture frames directly from the Raspberry Pi camera, install Picamera2 (or fall back to `libcamera-still`):
 
 ```bash
 sudo apt update
-sudo apt install python3-picamera2 python3-pyav
+sudo apt install python3-picamera2 libcamera-apps
 ```
 
 Enable the camera in `sudo raspi-config` under Interface Options if it isn’t already active, then run the dedicated helper:
@@ -593,7 +593,7 @@ source .venv/bin/activate
 ./scripts/pi_cam_ingest.py --device-id pi-camera --api-base http://localhost:8080/api/v1 --max-frames 0
 ```
 
-The script uses Picamera2 to capture JPEGs, encodes them like the ESP client, and posts to `/api/v1/ingest/frame`. You can adjust `--capture-interval`, `--resolution`, and `--device-key` to match your deployment. This gives you an on-Pi source for testing before wiring up the Arduino or other camera clients.
+The script uses Picamera2 when available (and `libcamera-still` as a fallback) to capture JPEGs, encodes them exactly like the ESP client, and posts to `/api/v1/ingest/frame`. You can adjust `--capture-interval`, `--resolution`, and `--device-key` to match your deployment. This gives you an on-Pi source for testing before wiring up the Arduino or other camera clients.
 
 15. Acceptance criteria (definition of done)
 Ingest
