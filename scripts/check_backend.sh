@@ -7,9 +7,9 @@ DEVICE_KEY=${DEVICE_KEY:-dev-key}
 
 echo "[check] hitting admin metrics/system"
 resp="$(curl -sSf "${API_BASE}/admin/metrics/system")"
-python3 - <<'PY' <<<"$resp"
-import json, sys
-data = json.loads(sys.stdin.read())
+CHECK_RESP="$resp" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["CHECK_RESP"])
 if not data.get("ok"):
     raise SystemExit("system metrics endpoint returned false ok")
 print("[check] system metrics ok")
@@ -17,9 +17,9 @@ PY
 
 echo "[check] hitting admin metrics/ingest"
 resp="$(curl -sSf "${API_BASE}/admin/metrics/ingest")"
-python3 - <<'PY' <<<"$resp"
-import json, sys
-data = json.loads(sys.stdin.read())
+CHECK_RESP="$resp" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["CHECK_RESP"])
 if not data.get("ok"):
     raise SystemExit("ingest metrics endpoint returned false ok")
 print("[check] ingest metrics ok")
@@ -27,9 +27,9 @@ PY
 
 echo "[check] hitting /health"
 resp="$(curl -sSf "${API_BASE}/health")"
-python3 - <<'PY' <<<"$resp"
-import json, sys
-data = json.loads(sys.stdin.read())
+CHECK_RESP="$resp" python3 - <<'PY'
+import json, os
+data = json.loads(os.environ["CHECK_RESP"])
 health_ok = data.get("ok") is True
 if not health_ok:
     raise SystemExit("health endpoint reported !ok")
