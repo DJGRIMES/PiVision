@@ -4,6 +4,10 @@ set -euo pipefail
 API_BASE=${API_BASE:-http://localhost:8080/api/v1}
 DEVICE_ID=${DEVICE_ID:-smoke-client}
 DEVICE_KEY=${DEVICE_KEY:-dev-key}
+API_ROOT=${API_ROOT:-$API_BASE}
+if [[ "$API_ROOT" == */api/v1 ]]; then
+  API_ROOT=${API_ROOT%/api/v1}
+fi
 
 echo "[check] hitting admin metrics/system"
 resp="$(curl -sSf "${API_BASE}/admin/metrics/system")"
@@ -26,7 +30,7 @@ print("[check] ingest metrics ok")
 PY
 
 echo "[check] hitting /health"
-resp="$(curl -sSf "${API_BASE}/health")"
+resp="$(curl -sSf "${API_ROOT}/health")"
 CHECK_RESP="$resp" python3 - <<'PY'
 import json, os
 data = json.loads(os.environ["CHECK_RESP"])
