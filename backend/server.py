@@ -370,6 +370,16 @@ class PiVisionHandler(BaseHTTPRequestHandler):
             return
         self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not found"})
 
+    def do_POST(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/v1/ingest/frame":
+            self._handle_ingest_frame(datetime.now(UTC))
+            return
+        if parsed.path == "/api/v1/ingest/heartbeat":
+            self._handle_heartbeat()
+            return
+        self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not found"})
+
     def _handle_ingest_frame(self, started: datetime) -> None:
         def fail(code: HTTPStatus, error: str) -> None:
             latency_ms = int((datetime.now(UTC) - started).total_seconds() * 1000)

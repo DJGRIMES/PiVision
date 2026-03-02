@@ -143,6 +143,8 @@ If event: persist event + save event frames.
 
 If not event: delete staging frame.
 
+Current MVP behavior is intentionally simplified: the worker drains the queue, writes each capture as an `interaction_detected` event, and stamps it in the DB so the admin timeline and dashboard can show something while we build the delta engine. Keep `scripts/run_pi.sh worker` (or `make run-worker`) running whenever the backend is ingesting so the queue does not grow and events surface immediately.
+
 5.3 Queue / job system
 
 MVP: DB-backed job table (simple + reliable on Pi).
@@ -297,6 +299,7 @@ post.jpg (closest stable frame after interaction)
 optional during.jpg (peak motion frame)
 
 Store thumbnails for UI (optional but recommended).
+The current worker MVP keeps things simple by moving the staging JPEG into `events/<device_id>/<date>/<event_id>/pre.jpg` and updating `captures.storage_uri`, so the dashboard can read that same URI from `/api/v1/admin/events` and render an image without needing separate staging artifacts.
 
 7.3 Folder layout
 
@@ -563,6 +566,7 @@ This repo now describes the minimal MVP runtime: you run the Python services dir
    scripts/run_pi.sh worker
    ```
    The same helper can run the retention cleanup (`scripts/run_pi.sh retention`) or the built-in health check (`scripts/run_pi.sh check`).
+   With both processes running, the worker turns each queued capture into an `interaction_detected` event that the dashboard reads from `/api/v1/admin/events`, so the timeline and system stats stay live.
 4. Keep retention/cleanup running manually or via a timer:
    ```bash
    source .venv/bin/activate

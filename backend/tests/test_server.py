@@ -8,7 +8,7 @@ import unittest
 from http.client import HTTPConnection
 from pathlib import Path
 
-from backend import server
+from backend import server, worker
 
 
 class ServerRobustnessTests(unittest.TestCase):
@@ -114,6 +114,38 @@ class ServerRobustnessTests(unittest.TestCase):
         self.assertEqual(first_status, 200)
         self.assertEqual(second_status, 409)
         self.assertEqual(second_payload["error"], "duplicate device seq")
+
+    def test_worker_process_capture_emits_event(self) -> None:
+        device_id = "camera-01"
+        seq = 42
+        capture_ts = server.now_iso()
+        received_ts = server.now_iso()
+        with server.connect_db() as conn:
+            conn.execute(
+                "INSERT INTO devices (device_id, device_key, last_seen) VALUES (?, ?, ?)",
+                (device_id, server.DEFAULT_DEVICE_KEY, server.now_iso()),
+            )
+            cursor = conn.execute(
+                """
+                INSERT INTO captures (device_id, capture_ts, received_ts, seq, width, height, jpeg_quality)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (device_id, capture_ts, received_ts, seq, 640, 480, 70),
+            )
+            capture_id = cursor.lastrowid
+
+        with server.connect_db() as conn:
+            event_id, event_image = worker.process_capture(conn, capture_id)
+
+        with server.connect_db() as conn:
+            event_row = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+            capture_row = conn.execute("SELECT processing_status FROM captures WHERE id = ?", (capture_id,)).fetchone()
+
+        self.assertIsNotNone(event_row)
+        self.assertEqual(event_row["device_id"], device_id)
+        self.assertEqual(event_row["event_type"], "interaction_detected")
+        self.assertEqual(capture_row["processing_status"], "processed")
+        self.assertIsNone(event_image)
 
 
 if __name__ == "__main__":
