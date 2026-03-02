@@ -577,6 +577,24 @@ This repo now describes the minimal MVP runtime: you run the Python services dir
 
 `developmentDocs/PiVision_systemd_deployment.md` still documents how to wrap the server/worker in systemd if you want auto-start/restarts, but apply those units manually rather than relying on an installer. Use the provided `Makefile` for shorthand commands (`make setup`, `make run-server`, `make run-worker`, `make run-retention`, `make check`). This lean workflow keeps the focus on the ingest/analysis logic without the container/deployment automation from before.
 
+### Using the Pi camera for ingest
+
+If you want to capture frames directly from the Raspberry Pi camera, install the Picamera2 stack:
+
+```bash
+sudo apt update
+sudo apt install python3-picamera2 python3-pyav
+```
+
+Enable the camera in `sudo raspi-config` under Interface Options if it isn’t already active, then run the dedicated helper:
+
+```bash
+source .venv/bin/activate
+./scripts/pi_cam_ingest.py --device-id pi-camera --api-base http://localhost:8080/api/v1 --max-frames 0
+```
+
+The script uses Picamera2 to capture JPEGs, encodes them like the ESP client, and posts to `/api/v1/ingest/frame`. You can adjust `--capture-interval`, `--resolution`, and `--device-key` to match your deployment. This gives you an on-Pi source for testing before wiring up the Arduino or other camera clients.
+
 15. Acceptance criteria (definition of done)
 Ingest
 
