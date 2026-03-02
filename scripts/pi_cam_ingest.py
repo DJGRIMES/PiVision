@@ -10,6 +10,7 @@ import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+import tempfile
 
 import requests
 
@@ -18,7 +19,13 @@ try:
 except ImportError:
     shutil = None  # type: ignore[assignment]
 
-LIBCAMERA_STILL = shutil.which("libcamera-still") if shutil is not None else None
+LIBCAMERA_STILL = (
+    shutil.which("libcamera-still") if shutil is not None else None
+)
+if not LIBCAMERA_STILL:
+    candidate = "/usr/local/bin/libcamera-still"
+    if os.path.exists(candidate):
+        LIBCAMERA_STILL = candidate
 
 if not LIBCAMERA_STILL:
     raise SystemExit("libcamera-still not found; install libcamera-apps (apt install libcamera-apps).")
@@ -104,7 +111,7 @@ def main() -> None:
     )
     frame_count = 0
     while True:
-        with subprocess.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             temp_path = Path(tmp.name)
         try:
             image_bytes = capture_jpeg(temp_path, WIDTH, HEIGHT)
