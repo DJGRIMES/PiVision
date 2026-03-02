@@ -1,4 +1,4 @@
-const API_BASE = `${window.location.origin}/api/v1`;
+const API_BASE = "http://localhost:8080/api/v1";
 const REFRESH_INTERVAL_MS = 5000;
 
 function createEmptySeries() {
