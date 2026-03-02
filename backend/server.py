@@ -324,11 +324,17 @@ class PiVisionHandler(BaseHTTPRequestHandler):
         # keep default behavior but with compact tag
         super().log_message(f"[pivision] {fmt}", *args)
 
+    def _set_cors_headers(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-DEVICE-KEY")
+
     def _json(self, code: int, payload: dict) -> None:
         encoded = json.dumps(payload).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(encoded)))
+        self._set_cors_headers()
         self.end_headers()
         self.wfile.write(encoded)
 
@@ -378,7 +384,13 @@ class PiVisionHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/v1/ingest/heartbeat":
             self._handle_heartbeat()
             return
-        self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not found"})
+            self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not found"})
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self._set_cors_headers()
+        self.end_headers()
+        return
 
     def _handle_ingest_frame(self, started: datetime) -> None:
         def fail(code: HTTPStatus, error: str) -> None:

@@ -3,7 +3,7 @@ set -euo pipefail
 
 API_BASE=${API_BASE:-http://localhost:8080/api/v1}
 DEVICE_ID=${DEVICE_ID:-smoke-client}
-DEVICE_KEY=${DEVICE_KEY:-dev-key}
+DEVICE_KEY=${DEVICE_KEY:-${PIVISION_DEVICE_KEY:-dev-key}}
 API_ROOT=${API_ROOT:-$API_BASE}
 if [[ "$API_ROOT" == */api/v1 ]]; then
   API_ROOT=${API_ROOT%/api/v1}
