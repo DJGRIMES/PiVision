@@ -13,13 +13,12 @@ from pathlib import Path
 
 import requests
 
-LIBCAMERA_STILL = shutil := None
 try:
     import shutil
 except ImportError:
-    pass
-else:
-    LIBCAMERA_STILL = shutil.which("libcamera-still")
+    shutil = None  # type: ignore[assignment]
+
+LIBCAMERA_STILL = shutil.which("libcamera-still") if shutil is not None else None
 
 if not LIBCAMERA_STILL:
     raise SystemExit("libcamera-still not found; install libcamera-apps (apt install libcamera-apps).")
