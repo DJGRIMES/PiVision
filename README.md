@@ -540,56 +540,42 @@ foodstand-worker.service
 
 foodstand-retention.timer (nightly cleanup)
 
-## Containerized deployment workflow
+## Running PiVision without containers
 
-The preferred path for deployment is to publish the backend/worker/retention image once per release and have each Pi (or dev laptop) simply pull the tested images and start the Compose stack.
+This repo now describes the minimal MVP runtime: you run the Python services directly rather than via Docker. The steps are:
 
-### 1. Build & publish release images
+1. Create and activate the virtualenv inside the repo:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   sudo apt install python3-opencv  # OpenCV is provided by the OS
+   ```
+2. Copy `env.deploy.example` to `.env.deploy`, edit `PIVISION_DATA_DIR`, `PIVISION_DASHBOARD_DIR`, and `PIVISION_DEVICE_KEY` to match your Pi layout, and ensure those directories exist with `chown -R djg:`.
+3. Start the backend and worker. You can run the two services manually (activate the venv and launch `python -m backend.server`/`python -m backend.worker`), or use `scripts/run_pi.sh`:
+   ```bash
+   source .venv/bin/activate
+   scripts/run_pi.sh server
+   ```
+   In another shell:
+   ```bash
+   source .venv/bin/activate
+   scripts/run_pi.sh worker
+   ```
+   The same helper can run the retention cleanup (`scripts/run_pi.sh retention`) or the built-in health check (`scripts/run_pi.sh check`).
+4. Keep retention/cleanup running manually or via a timer:
+   ```bash
+   source .venv/bin/activate
+   python scripts/retention.py
+   ```
+4. Keep retention/cleanup running manually or via a timer:
+   ```bash
+   source .venv/bin/activate
+   python scripts/retention.py
+   ```
+5. Use `scripts/check_backend.sh` to confirm `/health` and other diagnostics; it targets the local server so it works even without Docker Compose.
 
-Use `scripts/build_release_images.sh` to build multi-architecture images:
-
-```bash
-REGISTRY=docker.io/myorg TAG=2026-02-21 scripts/build_release_images.sh
-```
-
-The script defaults to `docker.io/pivision` and `latest`, but you can override `REGISTRY`, `TAG`, `PLATFORMS` (comma-separated list), and `PUSH` (`true`/`false`). It builds the `backend` image (used by ingest, worker, retention, and camera) with `docker buildx` and either pushes it or loads it locally.
-
-### 2. Pull & run on each Pi
-
-We ship `docker-compose.deploy.yml` as the production compose file: it references image tags via these env vars:
-
-```
-PIVISION_DATA_DIR=/mnt/pivision/data
-PIVISION_BACKEND_IMAGE=docker.io/pivision/backend:latest
-PIVISION_WORKER_IMAGE=…
-PIVISION_RETENTION_IMAGE=…
-PIVISION_CAMERA_IMAGE=…
-PIVISION_DASHBOARD_IMAGE=…
-PIVISION_DASHBOARD_DIR=/mnt/pivision/dashboard
-PIVISION_DEVICE_KEY=pi-device-key
-```
-
-Copy `env.deploy.example` to `.env.deploy` and edit the registry/tag or paths, or let `scripts/deploy_pi.sh` generate it for you.
-
-Run `scripts/deploy_pi.sh` on the Pi; it ensures the data/dashboard directories exist, writes `.env.deploy`, pulls the images, and brings up the Compose stack using `docker-compose.deploy.yml` + `docker-compose.pi.yml`. After the script runs, `backend` exposes `/health` and `dashboard` listens on port 4173.
-
-### 3. Verify health & automation
-
-- `TAIL=docker compose -f docker-compose.deploy.yml -f docker-compose.pi.yml --env-file .env.deploy logs --tail 20` shows startup logs.
-- `curl http://localhost:8080/health` should return `{"ok": true, …}`; `scripts/check_backend.sh` folds metrics + ingest into a single gravity check.
-- To upgrade, set `TAG` to the new release, re-run the deploy script (it pulls the new image and recreates the services). Roll back by pointing `.env.deploy` to an older tag and repeating `docker compose ... pull` + `up -d`.
-
-Automate this entire process via systemd timers or a CI/CD pipeline that invokes `scripts/build_release_images.sh` and updates the `.env.deploy` on the target Pi.
-
-### 3. Guided Pi setup wizard
-
-`scripts/setup_pi_wizard.py` walks operators through the one-time Pi configuration so deployments stay consistent. Run the wizard from the repo root on the target Pi (e.g., `python3 scripts/setup_pi_wizard.py`), and it will:
-
-- prompt for `.env.deploy` values (data/dashboard dirs, image tags, device key, camera ID) using the defaults in `env.deploy.example` and back up any existing file before writing the new version,
-- create the configured directories, optionally invoke `scripts/deploy_pi.sh` to pull/push Docker Compose services, and execute `scripts/check_backend.sh` to verify `/health`,
-- optionally install the new systemd unit templates from `deployment/systemd/` when run with `--install-services` (or print the necessary `sudo install ...` + `systemctl` commands if run without root).
-
-Follow any printed instructions for enabling services, checking for legacy conflicts, and inspecting `journalctl -u pivision-server` / `journalctl -u pivision-worker` after the wizard finishes.
+`developmentDocs/PiVision_systemd_deployment.md` still documents how to wrap the server/worker in systemd if you want auto-start/restarts, but apply those units manually rather than relying on an installer. Use the provided `Makefile` for shorthand commands (`make setup`, `make run-server`, `make run-worker`, `make run-retention`, `make check`). This lean workflow keeps the focus on the ingest/analysis logic without the container/deployment automation from before.
 
 15. Acceptance criteria (definition of done)
 Ingest
