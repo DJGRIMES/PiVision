@@ -554,30 +554,40 @@ This repo now describes the minimal MVP runtime: you run the Python services dir
    pip install -r requirements.txt
    sudo apt install python3-opencv  # OpenCV is provided by the OS
    ```
-2. Copy `env.deploy.example` to `.env.deploy`, edit `PIVISION_DATA_DIR`, `PIVISION_DASHBOARD_DIR`, and `PIVISION_DEVICE_KEY` to match your Pi layout, and ensure those directories exist with `chown -R djg:`.
-3. Start the backend and worker. You can run the two services manually (activate the venv and launch `python -m backend.server`/`python -m backend.worker`), or use `scripts/run_pi.sh`:
+2. The system uses default configurations - no `.env` file required for basic testing.
+3. Start the backend and worker services:
    ```bash
+   # Terminal 1: Start backend server
    source .venv/bin/activate
-   scripts/run_pi.sh server
+   python3 backend/server.py
+   
+   # Terminal 2: Start worker (in another terminal)
+   source .venv/bin/activate  
+   python3 backend/worker.py
    ```
-   In another shell:
+   
+4. Access the dashboard:
    ```bash
-   source .venv/bin/activate
-   scripts/run_pi.sh worker
+   # Terminal 3: Serve dashboard files
+   cd dashboard
+   python3 -m http.server 8000
+   
+   # Then open http://localhost:8000 in your browser
    ```
-   The same helper can run the retention cleanup (`scripts/run_pi.sh retention`) or the built-in health check (`scripts/run_pi.sh check`).
-   With both processes running, the worker turns each queued capture into an `interaction_detected` event that the dashboard reads from `/api/v1/admin/events`, so the timeline and system stats stay live.
-4. Keep retention/cleanup running manually or via a timer:
-   ```bash
-   source .venv/bin/activate
-   python scripts/retention.py
-   ```
-4. Keep retention/cleanup running manually or via a timer:
-   ```bash
-   source .venv/bin/activate
-   python scripts/retention.py
-   ```
-5. Use `scripts/check_backend.sh` to confirm `/health` and other diagnostics; it targets the local server so it works even without Docker Compose.
+   
+5. The dashboard will show live system metrics and update automatically as data flows through the system.
+
+## Quick Test with Simulated Data
+
+You can test the complete data flow using the provided scripts:
+
+```bash
+# Terminal 4: Simulate device data (optional)
+source .venv/bin/activate
+python3 scripts/webcam_ingest.py --device-id test-camera --max-frames 5
+```
+
+This will send 5 test frames through the system, which the worker will process into events visible in the dashboard.
 
 `developmentDocs/PiVision_systemd_deployment.md` still documents how to wrap the server/worker in systemd if you want auto-start/restarts, but apply those units manually rather than relying on an installer. Use the provided `Makefile` for shorthand commands (`make setup`, `make run-server`, `make run-worker`, `make run-retention`, `make check`). This lean workflow keeps the focus on the ingest/analysis logic without the container/deployment automation from before.
 
@@ -658,7 +668,30 @@ DB: SQLite (MVP)
 
 Admin auth: none (LAN-only MVP) or simple password gate
 
-If you want, I can also produce the two “Codex seed files” that tend to w
+## Current Implementation Status
+
+### ✅ Working Components
+
+- **Backend API**: Fully functional ingest and admin APIs
+- **Database**: SQLite with proper schema and migrations  
+- **Dashboard**: Live-updating ops dashboard with system metrics, devices, events
+- **Ingest Pipeline**: Frame upload, validation, storage, and job queueing
+- **Worker**: Capture processing with event creation
+- **Data Flow**: Complete pipeline from device → ingest → processing → dashboard
+
+### 🚧 In Progress
+
+- **Real Device Integration**: Pi camera and webcam scripts available
+- **ROI Configuration**: Basic structure in place, UI needs implementation  
+- **Delta Analysis**: Current worker creates events for all captures (MVP simplification)
+
+### 📋 Upcoming Features
+
+- Advanced interaction detection algorithms
+- Inventory change detection
+- ROI editor UI
+- Retention cleanup scripts
+- Systemd service files
 
 ## Planning documents
 
