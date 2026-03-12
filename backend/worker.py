@@ -9,7 +9,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from backend.server import DB_PATH, EVENTS_DIR, connect_db, init_db, record_system_health
+from server import DB_PATH, EVENTS_DIR, connect_db, init_db, record_system_health
 
 
 POLL_S = 2
