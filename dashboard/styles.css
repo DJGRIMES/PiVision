@@ -290,6 +290,29 @@ td {
   object-fit: cover;
 }
 
+.event-meta {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.event-meta .meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.no-preview {
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding: 0 0.5rem;
+}
+
 .event-body {
   padding: 0.65rem;
 }

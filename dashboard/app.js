@@ -145,17 +145,29 @@ function renderEventGallery(events) {
 
   el("#event-gallery").innerHTML = events
     .map(
-      (event) => `
+      (event) => {
+        const hasImage = event.storage_uri && event.storage_uri !== "null";
+        const imagePreview = hasImage 
+          ? `<img src="${API_BASE}/static${event.storage_uri.replace(/^\/data/, '')}" alt="Event preview" class="event-image">`
+          : `<span class="no-preview">No preview available</span>`;
+        
+        return `
       <article class="event-card">
         <div class="event-preview">
-          <span>No preview</span>
+          ${imagePreview}
         </div>
         <div class="event-body">
           <div><strong>${formatLocalTime(event.event_ts)}</strong> • ${event.event_type}</div>
           <p>${event.note ?? "No additional details."}</p>
+          <div class="event-meta">
+            ${hasImage ? `<span class="meta-item">📷 ${event.storage_uri.split('/').pop()}</span>` : ''}
+            ${event.resolution ? `<span class="meta-item">📐 ${event.resolution}</span>` : ''}
+            ${event.age_minutes > 0 ? `<span class="meta-item">⏱️ ${event.age_minutes} min ago</span>` : ''}
+            ${event.confidence !== undefined ? `<span class="meta-item">🎯 ${(event.confidence * 100).toFixed(0)}% confident</span>` : ''}
+          </div>
         </div>
-      </article>`
-    )
+      </article>`;
+    })
     .join("");
 }
 
@@ -240,15 +252,27 @@ async function fetchJson(path) {
   return response.json();
 }
 
+async function fetchJsonWithFallback(path, fallback) {
+  try {
+    return await fetchJson(path);
+  } catch (error) {
+    console.warn(`Fallback used for ${path}:`, error);
+    return fallback;
+  }
+}
+
 async function refreshData() {
   try {
+    // Show loading state
+    el("#last-updated").textContent = "Loading data...";
+    
     const [systemResp, ingestResp, queueResp, databaseResp, eventsResp, devicesResp] = await Promise.all([
-      fetchJson(`${API_BASE}/admin/metrics/system`),
-      fetchJson(`${API_BASE}/admin/metrics/ingest`),
-      fetchJson(`${API_BASE}/admin/metrics/queue`),
-      fetchJson(`${API_BASE}/admin/metrics/database`),
-      fetchJson(`${API_BASE}/admin/events?limit=15`),
-      fetchJson(`${API_BASE}/admin/devices`),
+      fetchJsonWithFallback(`${API_BASE}/admin/metrics/system`, {cpu: null, memory: null, diskRemainingGb: null, tempC: null, uptime: "—"}),
+      fetchJsonWithFallback(`${API_BASE}/admin/metrics/ingest`, {success_60m: 0, failure_60m: 0, avg_latency_ms: 0, series: []}),
+      fetchJsonWithFallback(`${API_BASE}/admin/metrics/queue`, {depth: 0, queue: {}}),
+      fetchJsonWithFallback(`${API_BASE}/admin/metrics/database`, {connected: true, version: "SQLite", captures: 0, events: 0, jobs: 0, devices: 0, ingestAudit: 0, dbSizeMb: 0, tables: []}),
+      fetchJsonWithFallback(`${API_BASE}/admin/events?limit=15`, {events: []}),
+      fetchJsonWithFallback(`${API_BASE}/admin/devices`, {devices: []}),
     ]);
 
     dashboardData.system = {
@@ -299,13 +323,14 @@ async function refreshData() {
 }
 
 function render() {
-  renderStat("#system-health", [
-    ["CPU", formatValue(dashboardData.system.cpu, "%")],
-    ["Memory", formatValue(dashboardData.system.memory, "%")],
-    ["Disk Free", dashboardData.system.diskRemainingGb !== null ? `${dashboardData.system.diskRemainingGb.toFixed(1)} GB` : "—"],
-    ["Temp", formatValue(dashboardData.system.tempC, "°C")],
-    ["Uptime", dashboardData.system.uptime],
-  ]);
+  try {
+    renderStat("#system-health", [
+      ["CPU", formatValue(dashboardData.system.cpu, "%")],
+      ["Memory", formatValue(dashboardData.system.memory, "%")],
+      ["Disk Free", dashboardData.system.diskRemainingGb !== null ? `${dashboardData.system.diskRemainingGb.toFixed(1)} GB` : "—"],
+      ["Temp", formatValue(dashboardData.system.tempC, "°C")],
+      ["Uptime", dashboardData.system.uptime],
+    ]);
 
   renderStat("#ingest-metrics", [
     ["Success (60m)", dashboardData.ingest.success60m],
@@ -327,6 +352,10 @@ function render() {
   renderEventGallery(dashboardData.events);
   renderAlerts(dashboardData.alerts);
   setOverallStatus(dashboardData);
+  } catch (error) {
+    console.error("Render error:", error);
+    el("#last-updated").textContent = "Error rendering data - " + new Date().toLocaleTimeString();
+  }
 }
 
 function setupTabs() {

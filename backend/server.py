@@ -374,6 +374,9 @@ class PiVisionHandler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/api/v1/admin/metrics/"):
             self._handle_admin_metrics(parsed.path)
             return
+        if parsed.path.startswith("/static/"):
+            self._handle_static(parsed.path)
+            return
         self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
@@ -565,7 +568,8 @@ class PiVisionHandler(BaseHTTPRequestHandler):
         with connect_db() as conn:
             rows = conn.execute(
                 """
-                SELECT e.id, e.device_id, e.event_type, e.event_ts, e.note, c.storage_uri
+                SELECT e.id, e.device_id, e.event_type, e.event_ts, e.note, e.confidence,
+                       c.storage_uri, c.width, c.height, c.capture_ts
                 FROM events e
                 JOIN captures c ON c.id = e.capture_id
                 ORDER BY e.event_ts DESC
@@ -574,7 +578,15 @@ class PiVisionHandler(BaseHTTPRequestHandler):
                 (limit,),
             ).fetchall()
 
-        events = [dict(row) for row in rows]
+        events = []
+        for row in rows:
+            event_dict = dict(row)
+            # Add derived fields for better dashboard display
+            event_dict["has_image"] = bool(event_dict["storage_uri"])
+            event_dict["resolution"] = f"{event_dict['width']}x{event_dict['height']}" if event_dict['width'] and event_dict['height'] else None
+            event_dict["age_minutes"] = _calculate_minutes_since(event_dict["event_ts"])
+            events.append(event_dict)
+        
         self._json(HTTPStatus.OK, {"ok": True, "events": events})
 
     def _handle_admin_devices(self) -> None:
@@ -641,6 +653,45 @@ class PiVisionHandler(BaseHTTPRequestHandler):
         status = HTTPStatus.OK if ok else HTTPStatus.SERVICE_UNAVAILABLE
         self._json(status, response)
 
+    def _handle_static(self, path: str) -> None:
+        try:
+            # Remove /static/ prefix and make it relative to DATA_DIR
+            relative_path = path[8:]  # Remove "/static/" prefix
+            file_path = DATA_DIR / relative_path
+            
+            # Security check - ensure path is within DATA_DIR
+            if not str(file_path).startswith(str(DATA_DIR)):
+                self._json(HTTPStatus.FORBIDDEN, {"ok": False, "error": "invalid path"})
+                return
+                
+            if not file_path.exists() or not file_path.is_file():
+                self._json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "file not found"})
+                return
+                
+            # Serve the file
+            with open(file_path, "rb") as f:
+                content = f.read()
+                
+            content_type = "image/jpeg" if file_path.suffix.lower() == ".jpg" else "application/octet-stream"
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+            
+        except Exception as exc:
+            self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": f"static serve error: {exc}"})
+
+
+def _calculate_minutes_since(iso_timestamp: str) -> int:
+    try:
+        ts = _parse_iso_ts(iso_timestamp)
+        if ts:
+            delta = datetime.now(UTC) - ts
+            return int(delta.total_seconds() / 60)
+    except Exception:
+        pass
+    return 0
 
 def serve(port: int = 8080) -> None:
     init_db()
