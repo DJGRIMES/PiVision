@@ -587,6 +587,11 @@ class PiVisionHandler(BaseHTTPRequestHandler):
             event_dict["age_minutes"] = _calculate_minutes_since(event_dict["event_ts"])
             events.append(event_dict)
         
+        # Debug logging
+        print(f"Events API: Returning {len(events)} events, limit={limit}")
+        if events:
+            print(f"Latest event: {events[0]['event_ts']} - {events[0]['event_type']}")
+        
         self._json(HTTPStatus.OK, {"ok": True, "events": events})
 
     def _handle_admin_devices(self) -> None:

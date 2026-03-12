@@ -138,9 +138,16 @@ function renderDatabase(database) {
 }
 
 function renderEventGallery(events) {
+  console.log(`Rendering ${events.length} events in gallery`);
   if (!events.length) {
     el("#event-gallery").innerHTML = `<p class="empty-state">No events recorded yet.</p>`;
     return;
+  }
+  
+  // Show event count in UI
+  const eventCountElement = el("#event-count");
+  if (eventCountElement) {
+    eventCountElement.textContent = `${events.length} events`;
   }
 
   el("#event-gallery").innerHTML = events
@@ -264,16 +271,21 @@ async function fetchJsonWithFallback(path, fallback) {
 async function refreshData() {
   try {
     // Show loading state
-    el("#last-updated").textContent = "Loading data...";
+    el("#last-updated").textContent = "Loading data..."
+    
+    // Add timestamp to bypass caching
+    const timestamp = Date.now();
     
     const [systemResp, ingestResp, queueResp, databaseResp, eventsResp, devicesResp] = await Promise.all([
-      fetchJsonWithFallback(`${API_BASE}/admin/metrics/system`, {cpu: null, memory: null, diskRemainingGb: null, tempC: null, uptime: "—"}),
-      fetchJsonWithFallback(`${API_BASE}/admin/metrics/ingest`, {success_60m: 0, failure_60m: 0, avg_latency_ms: 0, series: []}),
-      fetchJsonWithFallback(`${API_BASE}/admin/metrics/queue`, {depth: 0, queue: {}}),
-      fetchJsonWithFallback(`${API_BASE}/admin/metrics/database`, {connected: true, version: "SQLite", captures: 0, events: 0, jobs: 0, devices: 0, ingestAudit: 0, dbSizeMb: 0, tables: []}),
-      fetchJsonWithFallback(`${API_BASE}/admin/events?limit=15`, {events: []}),
-      fetchJsonWithFallback(`${API_BASE}/admin/devices`, {devices: []}),
+      fetchJsonWithFallback(`${API_BASE}/admin/metrics/system?t=${timestamp}`, {cpu: null, memory: null, diskRemainingGb: null, tempC: null, uptime: "—"}),
+      fetchJsonWithFallback(`${API_BASE}/admin/metrics/ingest?t=${timestamp}`, {success_60m: 0, failure_60m: 0, avg_latency_ms: 0, series: []}),
+      fetchJsonWithFallback(`${API_BASE}/admin/metrics/queue?t=${timestamp}`, {depth: 0, queue: {}}),
+      fetchJsonWithFallback(`${API_BASE}/admin/metrics/database?t=${timestamp}`, {connected: true, version: "SQLite", captures: 0, events: 0, jobs: 0, devices: 0, ingestAudit: 0, dbSizeMb: 0, tables: []}),
+      fetchJsonWithFallback(`${API_BASE}/admin/events?limit=50&t=${timestamp}`, {events: []}),
+      fetchJsonWithFallback(`${API_BASE}/admin/devices?t=${timestamp}`, {devices: []}),
     ]);
+    
+    console.log(`Refreshed data: ${eventsResp.events.length} events, ${databaseResp.captures} captures`);
 
     dashboardData.system = {
       cpu: systemResp.cpu,
@@ -380,6 +392,20 @@ function setupTabs() {
 
 function setupRefreshControls() {
   el("#refresh-btn").addEventListener("click", refreshData);
+  
+  // Add specific event refresh button if it exists
+  const eventRefreshBtn = el("#refresh-events-btn");
+  if (eventRefreshBtn) {
+    eventRefreshBtn.addEventListener("click", () => {
+      fetchJsonWithFallback(`${API_BASE}/admin/events?limit=50&t=${Date.now()}`, {events: []})
+        .then(data => {
+          dashboardData.events = data.events ?? [];
+          renderEventGallery(dashboardData.events);
+          console.log(`Manual refresh: ${data.events.length} events loaded`);
+        });
+    });
+  }
+  
   const autoRefresh = el("#auto-refresh");
 
   function startAutoRefresh() {
